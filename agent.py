@@ -170,8 +170,16 @@ class AgenticRAG:
             )
         else:
             self.vectorstore.add_documents(docs)
-        # Persist changes to disk
-        self.vectorstore.persist()
+        # Persist changes to disk if supported.  The `persist()` method was
+        # removed in newer versions of Chroma (>= 0.4.x) because data is
+        # automatically persisted【663307290471737†L522-L539】.  To maintain
+        # compatibility across versions, only call ``persist`` when available.
+        if hasattr(self.vectorstore, "persist"):
+            try:
+                self.vectorstore.persist()  # type: ignore[attr-defined]
+            except Exception:
+                # Swallow any errors from persist to avoid crashing ingestion.
+                pass
         # Reconfigure retriever after adding documents
         self.retriever = self.vectorstore.as_retriever(
             search_type="similarity", search_kwargs={"k": self.k}
@@ -292,19 +300,12 @@ class AgenticRAG:
                         f"Question: {query}\n\nDocument: {doc}\n\nIs this document relevant to answering the question?"
                     )},
                 ]
-                try:
-                    response = self.chat_model.invoke(messages)
-                    answer_text = response.content.strip() if hasattr(response, "content") else str(response)
-                    # Normalise answer to Yes/No
-                    if answer_text.lower().startswith("yes"):
-                        grades.append("Yes")
-                    else:
-                        grades.append("No")
-                except Exception:
-                    # On any LLM failure, mark the document as not relevant.  This
-                    # conservative approach prevents hard crashes and avoids
-                    # classifying irrelevant documents as relevant when the LLM is
-                    # unavailable or misconfigured.
+                response = self.chat_model.invoke(messages)
+                answer_text = response.content.strip() if hasattr(response, "content") else str(response)
+                # Normalise answer to Yes/No
+                if answer_text.lower().startswith("yes"):
+                    grades.append("Yes")
+                else:
                     grades.append("No")
         return {"grades": grades}
 
@@ -328,14 +329,9 @@ class AgenticRAG:
                 f"Question: {query}\n\nContext: {context_snippet}\n\nSearch query:"
             )},
         ]
-        try:
-            response = self.chat_model.invoke(messages)
-            rewritten = response.content.strip() if hasattr(response, "content") else str(response)
-        except Exception:
-            # If the rewrite model fails, retain the original query.  This still
-            # allows the web search to proceed with a sensible input.
-            rewritten = ""
-        # Fallback to original query if rewrite fails or yields an empty string
+        response = self.chat_model.invoke(messages)
+        rewritten = response.content.strip() if hasattr(response, "content") else str(response)
+        # Fallback to original query if rewrite fails
         rewritten_query = rewritten or query
         return {"rewritten_query": rewritten_query}
 
@@ -401,13 +397,6 @@ class AgenticRAG:
         user_content = f"Question: {query}\n\nContext:\n{full_context}" if full_context else f"Question: {query}"
         messages.append({"role": "user", "content": user_content})
         # Invoke the chat model
-        try:
-            response = self.chat_model.invoke(messages)
-            answer_text = response.content.strip() if hasattr(response, "content") else str(response)
-        except Exception:
-            # If the LLM fails, return a generic fallback answer.  This prevents
-            # the application from returning a 500 error and surfaces a
-            # user-friendly response instead.  You can customise this message
-            # based on your application's requirements.
-            return {"answer": "I'm sorry, I couldn't generate an answer at this time."}
+        response = self.chat_model.invoke(messages)
+        answer_text = response.content.strip() if hasattr(response, "content") else str(response)
         return {"answer": answer_text}
