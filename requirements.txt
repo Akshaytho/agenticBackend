@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+langchain==0.2.0
+langchain-openai==0.1.7
+langchain-community==0.2.0
+langgraph==0.1.1
+chromadb
+duckduckgo-search
+python-dotenv
+pdfplumber
+python-multipart
