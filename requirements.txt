@@ -9,3 +9,4 @@ duckduckgo-search
 python-dotenv
 pdfplumber
 python-multipart
+langchain_chroma
