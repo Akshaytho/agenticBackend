@@ -292,12 +292,19 @@ class AgenticRAG:
                         f"Question: {query}\n\nDocument: {doc}\n\nIs this document relevant to answering the question?"
                     )},
                 ]
-                response = self.chat_model.invoke(messages)
-                answer_text = response.content.strip() if hasattr(response, "content") else str(response)
-                # Normalise answer to Yes/No
-                if answer_text.lower().startswith("yes"):
-                    grades.append("Yes")
-                else:
+                try:
+                    response = self.chat_model.invoke(messages)
+                    answer_text = response.content.strip() if hasattr(response, "content") else str(response)
+                    # Normalise answer to Yes/No
+                    if answer_text.lower().startswith("yes"):
+                        grades.append("Yes")
+                    else:
+                        grades.append("No")
+                except Exception:
+                    # On any LLM failure, mark the document as not relevant.  This
+                    # conservative approach prevents hard crashes and avoids
+                    # classifying irrelevant documents as relevant when the LLM is
+                    # unavailable or misconfigured.
                     grades.append("No")
         return {"grades": grades}
 
@@ -321,9 +328,14 @@ class AgenticRAG:
                 f"Question: {query}\n\nContext: {context_snippet}\n\nSearch query:"
             )},
         ]
-        response = self.chat_model.invoke(messages)
-        rewritten = response.content.strip() if hasattr(response, "content") else str(response)
-        # Fallback to original query if rewrite fails
+        try:
+            response = self.chat_model.invoke(messages)
+            rewritten = response.content.strip() if hasattr(response, "content") else str(response)
+        except Exception:
+            # If the rewrite model fails, retain the original query.  This still
+            # allows the web search to proceed with a sensible input.
+            rewritten = ""
+        # Fallback to original query if rewrite fails or yields an empty string
         rewritten_query = rewritten or query
         return {"rewritten_query": rewritten_query}
 
@@ -389,6 +401,13 @@ class AgenticRAG:
         user_content = f"Question: {query}\n\nContext:\n{full_context}" if full_context else f"Question: {query}"
         messages.append({"role": "user", "content": user_content})
         # Invoke the chat model
-        response = self.chat_model.invoke(messages)
-        answer_text = response.content.strip() if hasattr(response, "content") else str(response)
+        try:
+            response = self.chat_model.invoke(messages)
+            answer_text = response.content.strip() if hasattr(response, "content") else str(response)
+        except Exception:
+            # If the LLM fails, return a generic fallback answer.  This prevents
+            # the application from returning a 500 error and surfaces a
+            # user-friendly response instead.  You can customise this message
+            # based on your application's requirements.
+            return {"answer": "I'm sorry, I couldn't generate an answer at this time."}
         return {"answer": answer_text}
